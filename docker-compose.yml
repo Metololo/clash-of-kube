@@ -1,0 +1,7 @@
+services:
+  soldier-test:
+    build: ./soldier
+    environment:
+      - PORT=${SOLDIER_PORT}
+    ports:
+      - "${SOLDIER_PORT}:${SOLDIER_PORT}"

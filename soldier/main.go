@@ -1,9 +1,10 @@
-// main.go
 package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 )
 
 func handler(w http.ResponseWriter, r *http.Request) {
@@ -11,7 +12,15 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
 	http.HandleFunc("/", handler)
-	fmt.Println("Soldier service started on :8080")
-	http.ListenAndServe(":8080", nil)
+	
+	addr := ":" + port
+	fmt.Printf("Soldier service started on %s\n", addr)
+	
+	log.Fatal(http.ListenAndServe(addr, nil))
 }
