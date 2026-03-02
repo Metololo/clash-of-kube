@@ -1,1 +1,1 @@
-kubectl apply -f=k8s/soldier-deployment.yaml
+kubectl apply -f k8s/

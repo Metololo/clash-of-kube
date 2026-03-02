@@ -31,6 +31,12 @@ func main() {
 	}
 
 	s := &Soldier{ID: id, Health: health, AttackPower: attack}
+	log.Printf("[%s][%s] Health=%d Attack=%d",
+		s.ID,
+		os.Getenv("TEAM"),
+		s.Health,
+		s.AttackPower,
+	)
 	port := getEnvString("PORT", "8080")
 
 	http.HandleFunc("/takeDamage", TakeDamageHandler(s))
