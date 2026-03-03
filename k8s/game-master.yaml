@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: game-master
+  labels:
+    app: game-master
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: game-master
+  template:
+    metadata:
+      labels:
+        app: game-master
+    spec:
+      serviceAccountName: game-master-sa
+      containers:
+      - name: game-master
+        image: metooo/game-master:latest
+        imagePullPolicy: Always
+        # 1. LINKING THE FOLDER
+        volumeMounts:
+        - name: manifest-storage
+          mountPath: /app/manifests
+          readOnly: true
+      volumes:
+      - name: manifest-storage
+        configMap:
+          name: game-manifests
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: game-master-sa
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pod-watcher-role
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: game-master-binding
+subjects:
+  - kind: ServiceAccount
+    name: game-master-sa
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: pod-watcher-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: game-master-service
+spec:
+  type: LoadBalancer
+  selector:
+    app: game-master
+  ports:
+    - protocol: TCP
+      port: 80         
+      targetPort: 8080
