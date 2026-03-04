@@ -61,6 +61,9 @@ deploy-teams:
 deploy-game-master:
 	kubectl apply -f $(K8S_DIR)/game-master.yaml
 
+deploy-redis: 
+	kubectl apply -f $(K8S_DIR)/redis-deployment.yaml
+
 deploy: deploy-teams deploy-game-master
 
 # =========================

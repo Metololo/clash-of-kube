@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -15,7 +16,11 @@ import (
 
 func main() {
 	clientset := getKubernetesClient()
-	gameState := NewMemoryGameState()
+	redisAddr := os.Getenv("REDIS_ADDR")
+	if redisAddr == "" {
+		redisAddr = "localhost:6379"
+	}
+	gameState := NewRedisGameState(redisAddr)
 	tracker := NewPodTracker()
 	namespace := "default"
 
@@ -25,7 +30,9 @@ func main() {
 	setupEventHandlers(podInformer, gameState, tracker, gm)
 
 	go func() {
-		http.HandleFunc("/start-game", gm.StartNewGameHandler)
+		http.HandleFunc("/create-battlefield", gm.CreateBattlefieldHandler)
+		http.HandleFunc("/start-game", gm.StartGameHandler)
+		log.Printf("🚀 Game Master listening on :8080 (Redis: %s)", redisAddr)
 		log.Fatal(http.ListenAndServe(":8080", nil))
 	}()
 
@@ -58,12 +65,21 @@ func createInformer(clientset *kubernetes.Clientset, labelSelector string) cache
 func setupEventHandlers(podInformer cache.SharedIndexInformer, gameState GameState, tracker *PodTracker, gm *GameMaster) {
 	podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
+			if gameState.IsGameOver() {
+				return
+			}
 			handlePodAdd(obj.(*corev1.Pod), gameState, tracker, gm)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
+			if gameState.IsGameOver() {
+				return
+			}
 			handlePodUpdate(oldObj.(*corev1.Pod), newObj.(*corev1.Pod), gameState, tracker, gm)
 		},
 		DeleteFunc: func(obj interface{}) {
+			if gameState.IsGameOver() {
+				return
+			}
 			handlePodDelete(obj.(*corev1.Pod), gameState, tracker, gm)
 		},
 	})

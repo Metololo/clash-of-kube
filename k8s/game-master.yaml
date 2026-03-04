@@ -18,8 +18,10 @@ spec:
       containers:
       - name: game-master
         image: metooo/game-master:latest
+        env:
+        - name: REDIS_ADDR
+          value: "redis-service:6379"
         imagePullPolicy: Always
-        # 1. LINKING THE FOLDER
         volumeMounts:
         - name: manifest-storage
           mountPath: /app/manifests
@@ -42,10 +44,9 @@ rules:
   - apiGroups: [""]
     resources: ["pods", "services", "configmaps"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  
   - apiGroups: ["apps"]
     resources: ["deployments"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"] # Added get/list
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
