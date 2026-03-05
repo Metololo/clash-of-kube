@@ -1,72 +1,119 @@
 package main
 
 import (
-	"fmt"
-
 	corev1 "k8s.io/api/core/v1"
 )
 
-func handlePodAdd(pod *corev1.Pod, gameState GameState, tracker *PodTracker, gm *GameMaster) {
-	tracker.Set(pod.Name, Running)
-	logPod(pod, "NEW POD DETECTED")
-	gameState.Increment(pod.Labels["team"])
+func handlePodAdd(pod *corev1.Pod, gameState GameState) {
+	if gameState.IsGameOver() {
+		return
+	}
+
+	logPod(pod, "POD ADDED")
 }
 
-func handlePodUpdate(oldPod, newPod *corev1.Pod, gameState GameState, tracker *PodTracker, gm *GameMaster) {
-	uid := newPod.Name
+func handlePodUpdate(oldPod, newPod *corev1.Pod, gameState GameState, gm *GameMaster) {
+	if gameState.IsGameOver() {
+		return
+	}
+
+	podUID := string(newPod.UID)
 	team := newPod.Labels["team"]
 
 	for _, cs := range newPod.Status.ContainerStatuses {
-		isTerminated := cs.State.Terminated != nil && tracker.Get(uid) != Terminated
-		isRespawned := cs.State.Running != nil && tracker.Get(uid) != Running
-		isWaiting := cs.State.Waiting != nil
 
-		switch {
-		case isTerminated:
-			handleTerminated(cs, newPod, uid, team, gameState, tracker, gm)
-		case isRespawned:
-			handleRunning(cs, newPod, uid, team, gameState, tracker)
-		case isWaiting:
-			handleWaiting(cs, newPod)
+		containerName := cs.Name
+
+		wasRunning := gameState.IsContainerRunning(podUID, containerName)
+		isRunning := cs.State.Running != nil
+
+		if hasRespawnedContainer(wasRunning, isRunning) {
+			handleContainerRespawn(newPod, podUID, containerName, team, gameState)
+			continue
+		}
+
+		if hasDiedContainer(wasRunning, isRunning) {
+			handleContainerDeath(newPod, podUID, containerName, team, gameState, gm)
 		}
 	}
 }
 
-func handleTerminated(cs corev1.ContainerStatus, pod *corev1.Pod, uid, team string, gameState GameState, tracker *PodTracker, gm *GameMaster) {
-	tracker.Set(uid, Terminated)
-	exitCode := cs.State.Terminated.ExitCode
-	reason := cs.State.Terminated.Reason
+func handleContainerRespawn(
+	pod *corev1.Pod,
+	podUID string,
+	containerName string,
+	team string,
+	gameState GameState,
+) {
 
-	if exitCode == 0 {
-		logPod(pod, "DIED (Completed)")
-	} else {
-		logPod(pod, fmt.Sprintf("CRASHED! ExitCode=%d, Reason=%s", exitCode, reason))
-	}
+	gameState.MarkContainerRunning(podUID, containerName)
+	gameState.IncrementTeamCount(team)
 
-	gameState.Decrement(team)
+	logPod(pod, "CONTAINER RESPAWNED: "+containerName)
+}
+
+func handleContainerDeath(
+	pod *corev1.Pod,
+	podUID string,
+	containerName string,
+	team string,
+	gameState GameState,
+	gm *GameMaster,
+) {
+
+	gameState.MarkContainerStopped(podUID, containerName)
+	gameState.DecrementTeamCount(team)
+
+	logPod(pod, "CONTAINER DIED: "+containerName)
+
 	gm.CheckGameOver()
 }
 
-func handleRunning(cs corev1.ContainerStatus, pod *corev1.Pod, uid, team string, gameState GameState, tracker *PodTracker) {
-	tracker.Set(uid, Running)
-	logPod(pod, "RESPAWNED!")
-	gameState.Increment(team)
+func hasRespawnedContainer(wasRunning, isRunning bool) bool {
+	return !wasRunning && isRunning
 }
 
-func handleWaiting(cs corev1.ContainerStatus, pod *corev1.Pod) {
-	logPod(pod, fmt.Sprintf("Waiting (Reason: %s)", cs.State.Waiting.Reason))
-	if cs.State.Waiting.Reason == "CrashLoopBackOff" {
-		logPod(pod, "In backoff!")
+func hasDiedContainer(wasRunning, isRunning bool) bool {
+	return wasRunning && !isRunning
+}
+
+func handlePodDelete(pod *corev1.Pod, gameState GameState, gm *GameMaster) {
+	if gameState.IsGameOver() {
+		return
 	}
-}
 
-func handlePodDelete(pod *corev1.Pod, gameState GameState, tracker *PodTracker, gm *GameMaster) {
-	uid := pod.Name
+	podUID := string(pod.UID)
 	team := pod.Labels["team"]
-	if tracker.Get(uid) == Running {
-		gameState.Decrement(team)
-		gm.CheckGameOver()
+
+	for _, cs := range pod.Status.ContainerStatuses {
+
+		containerName := cs.Name
+
+		if wasRunning(podUID, containerName, gameState) {
+			handleContainerStoppedOnDelete(pod, podUID, containerName, team, gameState, gm)
+		}
 	}
-	tracker.Delete(uid)
-	logPod(pod, "DELETED")
+
+	logPod(pod, "POD DELETED")
+}
+
+func handleContainerStoppedOnDelete(
+	pod *corev1.Pod,
+	podUID string,
+	containerName string,
+	team string,
+	gameState GameState,
+	gm *GameMaster,
+) {
+
+	gameState.MarkContainerStopped(podUID, containerName)
+	gameState.DecrementTeamCount(team)
+
+	logPod(pod, "CONTAINER STOPPED (POD DELETED): "+containerName)
+
+	gm.CheckGameOver()
+}
+
+func wasRunning(podUID, container string, gameState GameState) bool {
+	return gameState.IsContainerRunning(podUID, container)
 }

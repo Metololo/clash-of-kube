@@ -5,116 +5,142 @@ import (
 	"fmt"
 	"log"
 	"strconv"
-	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
 var ctx = context.Background()
 
-// GameState interface provides an abstraction layer for the game logic.
-// This allows the GameMaster to remain technology-agnostic.
+const (
+	keyGameStatus = "game:status"
+	keyTeamCount  = "count:%s"
+	keyContainer  = "container:%s:%s"
+)
+
 type GameState interface {
-	Increment(team string)
-	Decrement(team string)
-	GetCount(team string) int
-	Reset()
-	IsGameOver() bool
-	SetGameOver() bool
+	IncrementTeamCount(team string)
+	DecrementTeamCount(team string)
+	GetTeamCount(team string) int
+
+	MarkContainerRunning(podUID, container string)
+	MarkContainerStopped(podUID, container string)
+	IsContainerRunning(podUID, container string) bool
+
 	GetStatus() string
 	SetStatus(status string)
+	IsGameOver() bool
+	Reset()
+
+	PublishEvent(channel string, message string) error
 }
 
 type RedisGameState struct {
 	rdb *redis.Client
 }
 
-// NewRedisGameState initializes the Redis client and returns the interface.
 func NewRedisGameState(addr string) GameState {
 	rdb := redis.NewClient(&redis.Options{
 		Addr: addr,
 	})
 
-	// Fail fast: verify connection on startup
 	if err := rdb.Ping(ctx).Err(); err != nil {
-		log.Printf("⚠️ Redis Connection Warning: %v", err)
+		log.Printf("⚠️ Redis connection warning: %v", err)
 	}
 
 	return &RedisGameState{rdb: rdb}
 }
 
-func (r *RedisGameState) Increment(team string) {
-	key := fmt.Sprintf("count:%s", team)
-	val, err := r.rdb.Incr(ctx, key).Result()
-	if err != nil {
-		log.Printf("❌ Redis Incr error: %v", err)
-		return
-	}
-	fmt.Printf("📈 Team %s count: %d\n", team, val)
+func (r *RedisGameState) PublishEvent(channel string, message string) error {
+	return r.rdb.Publish(ctx, channel, message).Err()
 }
 
-func (r *RedisGameState) Decrement(team string) {
-	key := fmt.Sprintf("count:%s", team)
-	val, err := r.rdb.Decr(ctx, key).Result()
+func (r *RedisGameState) IncrementTeamCount(team string) {
+	key := fmt.Sprintf(keyTeamCount, team)
+
+	val, err := r.rdb.Incr(ctx, key).Result()
 	if err != nil {
-		log.Printf("❌ Redis Decr error: %v", err)
+		log.Printf("❌ Redis INCR error: %v", err)
 		return
 	}
 
-	// Ensure counts never remain negative in Redis
+	log.Printf("📈 Team %s count: %d", team, val)
+}
+
+func (r *RedisGameState) DecrementTeamCount(team string) {
+	key := fmt.Sprintf(keyTeamCount, team)
+
+	val, err := r.rdb.Decr(ctx, key).Result()
+	if err != nil {
+		log.Printf("❌ Redis DECR error: %v", err)
+		return
+	}
+
 	if val < 0 {
 		r.rdb.Set(ctx, key, 0, 0)
 		val = 0
 	}
-	fmt.Printf("📉 Team %s count: %d\n", team, val)
+
+	log.Printf("📉 Team %s count: %d", team, val)
 }
 
-func (r *RedisGameState) GetCount(team string) int {
-	key := fmt.Sprintf("count:%s", team)
+func (r *RedisGameState) GetTeamCount(team string) int {
+	key := fmt.Sprintf(keyTeamCount, team)
+
 	val, err := r.rdb.Get(ctx, key).Result()
 	if err != nil {
 		return 0
 	}
+
 	count, _ := strconv.Atoi(val)
 	return count
 }
 
-func (r *RedisGameState) Reset() {
-	// Atomic deletion of all state keys
-	err := r.rdb.Del(ctx, "count:red", "count:blue", "game:is_over").Err()
-	if err != nil {
-		log.Printf("❌ Redis Reset error: %v", err)
-	}
+func (r *RedisGameState) MarkContainerRunning(podUID, container string) {
+	key := fmt.Sprintf(keyContainer, podUID, container)
+	r.rdb.Set(ctx, key, "1", 0)
 }
 
-func (r *RedisGameState) IsGameOver() bool {
-	val, err := r.rdb.Get(ctx, "game:is_over").Result()
+func (r *RedisGameState) MarkContainerStopped(podUID, container string) {
+	key := fmt.Sprintf(keyContainer, podUID, container)
+	r.rdb.Set(ctx, key, "0", 0)
+}
+
+func (r *RedisGameState) IsContainerRunning(podUID, container string) bool {
+	key := fmt.Sprintf(keyContainer, podUID, container)
+
+	val, err := r.rdb.Get(ctx, key).Result()
 	if err != nil {
 		return false
 	}
-	return val == "true"
-}
 
-func (r *RedisGameState) SetGameOver() bool {
-	// Using the modern approach for atomic SET if Not Exists
-	// SetNX returns true if the key was set, false if it already existed.
-	// This acts as a distributed lock for the cleanup sequence.
-	success, err := r.rdb.SetNX(ctx, "game:is_over", "true", 10*time.Minute).Result()
-	if err != nil {
-		log.Printf("❌ Redis SetGameOver error: %v", err)
-		return false
-	}
-	return success
+	return val == "1"
 }
 
 func (r *RedisGameState) GetStatus() string {
-	val, _ := r.rdb.Get(ctx, "game:status").Result()
-	if val == "" {
-		return "WAITING"
+	val, err := r.rdb.Get(ctx, keyGameStatus).Result()
+	if err != nil || val == "" {
+		return StatusWaiting
 	}
+
 	return val
 }
 
 func (r *RedisGameState) SetStatus(status string) {
-	r.rdb.Set(ctx, "game:status", status, 0)
+	r.rdb.Set(ctx, keyGameStatus, status, 0)
+}
+
+func (r *RedisGameState) IsGameOver() bool {
+	return r.GetStatus() == StatusOver
+}
+
+func (r *RedisGameState) Reset() {
+	iter := r.rdb.Scan(ctx, 0, "*", 0).Iterator()
+
+	for iter.Next(ctx) {
+		r.rdb.Del(ctx, iter.Val())
+	}
+
+	if err := iter.Err(); err != nil {
+		log.Printf("❌ Redis reset error: %v", err)
+	}
 }

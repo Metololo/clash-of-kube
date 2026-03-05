@@ -10,7 +10,15 @@ type Soldier struct {
 	ID          string
 	Health      int
 	AttackPower int
+	Team        string
 	mu          sync.Mutex
+}
+
+func (s *Soldier) getEmoji() string {
+	if s.Team == "red" {
+		return "🔴"
+	}
+	return "🔵"
 }
 
 func (s *Soldier) TakeDamage(damage int) int {
@@ -18,7 +26,7 @@ func (s *Soldier) TakeDamage(damage int) int {
 	defer s.mu.Unlock()
 
 	s.Health -= damage
-	log.Printf("[%s] took %d damage, remaining health: %d", s.ID, damage, s.Health)
+	log.Printf("%s [%s] took %d damage, remaining health: %d", s.getEmoji(), s.ID, damage, s.Health)
 
 	if s.Health <= 0 {
 		s.Die()
@@ -27,6 +35,6 @@ func (s *Soldier) TakeDamage(damage int) int {
 }
 
 func (s *Soldier) Die() {
-	log.Printf("[%s] has died. Exiting.", s.ID)
-	os.Exit(0)
+	log.Printf("%s [%s] 💀 I have fallen!", s.getEmoji(), s.ID)
+	os.Exit(1)
 }

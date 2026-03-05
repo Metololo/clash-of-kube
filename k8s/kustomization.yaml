@@ -12,3 +12,4 @@ configMapGenerator:
 
 resources:
 - ./game-master.yaml
+- ./redis-deployment.yaml

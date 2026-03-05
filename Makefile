@@ -11,62 +11,39 @@ SOLDIER_IMAGE     = $(REGISTRY)/soldier:$(TAG)
 K8S_DIR = k8s
 
 .PHONY: help build-game-master build-soldier push-game-master push-soldier \
-        deploy-teams deploy-game-master build push deploy all
+        deploy-teams deploy-game-master build push deploy all clean prepare
+
+# ... (Help section) ...
 
 # =========================
-# Help
+# Management Commands
 # =========================
-help:
-	@echo "Available targets:"
-	@echo "  make build-game-master    Build game-master image"
-	@echo "  make build-soldier        Build soldier image"
-	@echo "  make push-game-master     Push game-master image"
-	@echo "  make push-soldier         Push soldier image"
-	@echo "  make deploy-teams         Deploy blue-team.yaml and red-team.yaml"
-	@echo "  make deploy-game-master   Deploy game-master.yaml"
-	@echo "  make build                Build both images"
-	@echo "  make push                 Push both images"
-	@echo "  make deploy               Deploy all manifests"
-	@echo "  make all                  Build, push, and deploy everything"
 
-# =========================
-# Build
-# =========================
-build-game-master:
-	docker build -t $(GAME_MASTER_IMAGE) ./Dockerfile
+# Prepare the Game Master environment using Kustomize (Redis, ConfigMaps, RBAC, etc.)
+prepare:
+	@echo "🛠️  Preparing Game Master environment..."
+	kubectl apply -k $(K8S_DIR)
 
-build-soldier:
-	docker build -t $(SOLDIER_IMAGE) ./soldier
-
-build: build-game-master build-soldier
+# Delete all deployments created by the game to start fresh
+clean:
+	@echo "🧹 Cleaning up deployments..."
+	kubectl delete deployments red-soldiers blue-soldiers game-master redis || true
+	kubectl delete service red-team blue-team game-master-service redis-service || true
+	@echo "✨ Environment cleared."
 
 # =========================
-# Push
+# Build & Push (Existing)
 # =========================
-push-game-master:
-	docker push $(GAME_MASTER_IMAGE)
-
-push-soldier:
-	docker push $(SOLDIER_IMAGE)
-
-push: push-game-master push-soldier
+# ... (Keep your existing build/push logic) ...
 
 # =========================
 # Deploy
 # =========================
-deploy-teams:
-	kubectl apply -f $(K8S_DIR)/blue-team-deployment.yaml
-	kubectl apply -f $(K8S_DIR)/red-team-deployment.yaml
 
-deploy-game-master:
-	kubectl apply -f $(K8S_DIR)/game-master.yaml
-
-deploy-redis: 
-	kubectl apply -f $(K8S_DIR)/redis-deployment.yaml
-
-deploy: deploy-teams deploy-game-master
+# Updated deploy to use prepare logic
+deploy: prepare
 
 # =========================
 # All-in-one
 # =========================
-all: build push deploy
+all: build push prepare

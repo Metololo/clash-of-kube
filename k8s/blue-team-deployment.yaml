@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: blue-soldiers
 spec:
-  replicas: 2
+  replicas: 6
   selector:
     matchLabels:
       app: soldier
@@ -16,27 +16,32 @@ spec:
     spec:
       containers:
       - name: soldier
-        image: metooo/soldier:v1
+        image: metooo/soldier:v3.1
         env:
         - name: SOLDIER_ID
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
+        - name: ENEMY_URL
+          value: "http://red-team/takeDamage"
+        - name: REDIS_ADDR
+          value: "redis-service:6379"
         - name: TEAM
           value: blue
         - name: HEALTH
           value: "100"
         - name: ATTACK_POWER
-          value: "30"
+          value: "40"
         - name: PORT
           value: "8080"
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: blue-team-service
+  name: blue-team
 spec:
   selector:
     app: soldier

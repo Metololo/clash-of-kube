@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os/exec"
@@ -12,125 +13,219 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+const (
+	StatusWaiting = "WAITING"
+	StatusRunning = "RUNNING"
+	StatusOver    = "OVER"
+
+	TeamRed  = "red"
+	TeamBlue = "blue"
+
+	DeploymentRed  = "red-soldiers"
+	DeploymentBlue = "blue-soldiers"
+
+	ManifestRed  = "/app/manifests/red-team-deployment.yaml"
+	ManifestBlue = "/app/manifests/blue-team-deployment.yaml"
+)
+
 type GameMaster struct {
 	clientset *kubernetes.Clientset
-	gameState GameState // Using the interface abstraction
-	tracker   *PodTracker
+	gameState GameState
 	namespace string
 	mu        sync.Mutex
 }
 
-func NewGameMaster(clientset *kubernetes.Clientset, gameState GameState, tracker *PodTracker, namespace string) *GameMaster {
+func NewGameMaster(clientset *kubernetes.Clientset, gameState GameState, namespace string) *GameMaster {
 	return &GameMaster{
 		clientset: clientset,
 		gameState: gameState,
-		tracker:   tracker,
 		namespace: namespace,
 	}
 }
 
-// 1. CreateBattlefieldHandler handles the infrastructure provisioning (kubectl apply)
 func (gm *GameMaster) CreateBattlefieldHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("🏗️  Provisioning Battlefield Infrastructure...")
+	log.Println("🏗️  Provisioning battlefield")
 
-	applyDeployment("/app/manifests/blue-team-deployment.yaml")
-	applyDeployment("/app/manifests/red-team-deployment.yaml")
+	gm.resetGame()
+
+	gm.applyBattlefieldManifests()
 
 	w.WriteHeader(http.StatusAccepted)
-	w.Write([]byte("Battlefield infrastructure requested. Deployment in progress..."))
+	w.Write([]byte("Battlefield provisioning started"))
 }
 
 func (gm *GameMaster) StartGameHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("🚀 Attempting to start game...")
+	log.Println("🚀 Start game requested")
 
-	if gm.gameState.IsGameOver() == false && gm.gameState.GetCount("red") > 0 {
-		http.Error(w, "Game already in progress", http.StatusConflict)
+	if gm.isGameAlreadyRunning() {
+		http.Error(w, "Game already running", http.StatusConflict)
 		return
 	}
+
 	if !gm.areSoldiersReady() {
-		http.Error(w, "Soldiers not ready. Wait for all pods to be 'Running'.", http.StatusServiceUnavailable)
+		http.Error(w, "Soldiers not ready", http.StatusServiceUnavailable)
 		return
 	}
-	gm.mu.Lock()
-	gm.gameState.Reset()
-	gm.mu.Unlock()
 
-	log.Println("✅ All pods verified. Game state reset. Battle is live!")
+	if err := gm.startGame(); err != nil {
+		http.Error(w, "Failed to start game", http.StatusInternalServerError)
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("BATTLE STARTED!"))
+	w.Write([]byte("Battle started"))
 }
 
-// areSoldiersReady ensures that ReadyReplicas == DesiredReplicas
+func (gm *GameMaster) startGame() error {
+	gm.gameState.SetStatus(StatusRunning)
+
+	err := gm.gameState.PublishEvent("game-events", "START")
+	if err != nil {
+		log.Printf("❌ Failed to publish start event: %v", err)
+		return err
+	}
+
+	log.Println("✅ Game started")
+	return nil
+}
+
+func (gm *GameMaster) resetGame() {
+	gm.mu.Lock()
+	defer gm.mu.Unlock()
+
+	gm.gameState.Reset()
+}
+
+func (gm *GameMaster) isGameAlreadyRunning() bool {
+	status := gm.gameState.GetStatus()
+	return status == StatusRunning && !gm.gameState.IsGameOver()
+}
+
 func (gm *GameMaster) areSoldiersReady() bool {
-	teams := []string{"red-soldiers", "blue-soldiers"}
-	for _, team := range teams {
-		deploy, err := gm.clientset.AppsV1().Deployments(gm.namespace).Get(context.TODO(), team, metav1.GetOptions{})
-		if err != nil {
-			log.Printf("⚠️  Deployment %s not found", team)
-			return false
-		}
+	deployments := []string{
+		DeploymentRed,
+		DeploymentBlue,
+	}
 
-		desired := int32(0)
-		if deploy.Spec.Replicas != nil {
-			desired = *deploy.Spec.Replicas
-		}
-
-		if deploy.Status.ReadyReplicas < desired {
-			log.Printf("⏳ Team %s: %d/%d pods ready", team, deploy.Status.ReadyReplicas, desired)
+	for _, deployment := range deployments {
+		ready := gm.isDeploymentReady(deployment)
+		if !ready {
 			return false
 		}
 	}
+
 	return true
 }
 
-// CheckGameOver handles the distributed cleanup logic
+func (gm *GameMaster) isDeploymentReady(name string) bool {
+	deploy, err := gm.clientset.
+		AppsV1().
+		Deployments(gm.namespace).
+		Get(context.TODO(), name, metav1.GetOptions{})
+
+	if err != nil {
+		log.Printf("⚠️ Deployment %s not found", name)
+		return false
+	}
+
+	desired := int32(0)
+	if deploy.Spec.Replicas != nil {
+		desired = *deploy.Spec.Replicas
+	}
+
+	ready := deploy.Status.ReadyReplicas
+
+	if ready < desired {
+		log.Printf("⏳ %s: %d/%d ready", name, ready, desired)
+		return false
+	}
+
+	return true
+}
+
 func (gm *GameMaster) CheckGameOver() {
-	// 1. Atomic Check: Has someone else already triggered the end?
 	if gm.gameState.IsGameOver() {
 		return
 	}
 
-	redCount := gm.gameState.GetCount("red")
-	blueCount := gm.gameState.GetCount("blue")
+	gm.mu.Lock()
+	defer gm.mu.Unlock()
 
-	// 2. Victory Condition Check
-	if redCount == 0 || blueCount == 0 {
-		// 3. Atomic Lock: Only one GM instance wins the right to delete
-		if !gm.gameState.SetGameOver() {
-			return
-		}
+	redAlive := gm.gameState.GetTeamCount(TeamRed)
+	blueAlive := gm.gameState.GetTeamCount(TeamBlue)
 
-		winner := "Blue"
-		if blueCount == 0 && redCount > 0 {
-			winner = "Red"
-		} else if redCount == 0 && blueCount == 0 {
-			winner = "Draw"
-		}
-
-		log.Printf("🏆 VALIDATED GAME OVER! Winner: %s (Red: %d, Blue: %d)", winner, redCount, blueCount)
-		gm.DeleteDeployment("red-soldiers")
-		gm.DeleteDeployment("blue-soldiers")
-	}
-}
-
-func (gm *GameMaster) DeleteDeployment(name string) {
-	err := gm.clientset.AppsV1().Deployments(gm.namespace).Delete(context.TODO(), name, metav1.DeleteOptions{})
-	if err != nil {
-		if errors.IsNotFound(err) {
-			return
-		}
-		log.Printf("❌ Failed to delete deployment %s: %v", name, err)
+	if gm.shouldGameContinue(redAlive, blueAlive) {
 		return
 	}
+
+	gm.finishGame(redAlive, blueAlive)
+}
+
+func (gm *GameMaster) shouldGameContinue(red, blue int) bool {
+	return red > 0 && blue > 0
+}
+
+func (gm *GameMaster) finishGame(red, blue int) {
+	gm.gameState.SetStatus(StatusOver)
+
+	winner := determineWinner(red, blue)
+
+	log.Println("--------------------------------------------------")
+	log.Printf("🏆 GAME OVER! Winner: %s", winner)
+	log.Printf("📊 Final Score -> Red: %d | Blue: %d", red, blue)
+	log.Println("--------------------------------------------------")
+
+	go gm.cleanupBattlefield(winner)
+}
+
+func determineWinner(red, blue int) string {
+	if red == 0 && blue > 0 {
+		return "Blue"
+	}
+
+	if blue == 0 && red > 0 {
+		return "Red"
+	}
+
+	return "Draw"
+}
+
+func (gm *GameMaster) cleanupBattlefield(winner string) {
+	gm.deleteDeployment(DeploymentRed)
+	gm.deleteDeployment(DeploymentBlue)
+
+	event := fmt.Sprintf(`{"type":"GAME_OVER","winner":"%s"}`, winner)
+
+	_ = gm.gameState.PublishEvent("ui-events", event)
+}
+
+func (gm *GameMaster) deleteDeployment(name string) {
+	err := gm.clientset.
+		AppsV1().
+		Deployments(gm.namespace).
+		Delete(context.TODO(), name, metav1.DeleteOptions{})
+
+	if err != nil && !errors.IsNotFound(err) {
+		log.Printf("❌ Failed deleting %s: %v", name, err)
+		return
+	}
+
 	log.Printf("🗑️ Deployment %s deleted", name)
 }
 
-func applyDeployment(path string) {
+func (gm *GameMaster) applyBattlefieldManifests() {
+	applyManifest(ManifestRed)
+	applyManifest(ManifestBlue)
+}
+
+func applyManifest(path string) {
 	cmd := exec.Command("kubectl", "apply", "-f", path)
+
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Printf("❌ Failed to apply %s: %v\nOutput: %s", path, err, string(out))
+		log.Printf("❌ Apply failed (%s): %v\n%s", path, err, out)
 		return
 	}
-	log.Printf("✅ Applied deployment from %s", path)
+
+	log.Printf("✅ Applied %s", path)
 }
