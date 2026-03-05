@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package soldier;
+
+option go_package = "soldier/pb;pb";
+
+service SoldierService {
+  rpc TakeDamage(DamageRequest) returns (DamageResponse);
+}
+
+message DamageRequest {
+  string attacker_id = 1;
+  string attacker_team = 2;
+  int32 power = 3;
+}
+
+message DamageResponse {
+  int32 remaining_health = 1;
+}

@@ -26,11 +26,18 @@ func (s *Soldier) TakeDamage(damage int) int {
 	defer s.mu.Unlock()
 
 	s.Health -= damage
-	log.Printf("%s [%s] took %d damage, remaining health: %d", s.getEmoji(), s.ID, damage, s.Health)
+
+	log.Printf("%s [%s] took %d damage, remaining health: %d",
+		s.getEmoji(),
+		s.ID,
+		damage,
+		s.Health,
+	)
 
 	if s.Health <= 0 {
 		s.Die()
 	}
+
 	return s.Health
 }
 

@@ -16,14 +16,14 @@ spec:
     spec:
       containers:
       - name: soldier
-        image: metooo/soldier:v3.1
+        image: metooo/soldier:v1
         env:
         - name: SOLDIER_ID
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        - name: ENEMY_URL
-          value: "http://blue-team/takeDamage"
+        - name: ENEMY_SERVICE
+          value: "blue-team:50051"
         - name: REDIS_ADDR
           value: "redis-service:6379"
         - name: TEAM
@@ -33,10 +33,10 @@ spec:
         - name: ATTACK_POWER
           value: "40"
         - name: PORT
-          value: "8080"
+          value: "50051"
         imagePullPolicy: Always
         ports:
-        - containerPort: 8080
+        - containerPort: 50051
 ---
 apiVersion: v1
 kind: Service
@@ -47,5 +47,5 @@ spec:
     app: soldier
     team: red
   ports:
-    - port: 80
-      targetPort: 8080
+    - port: 50051
+      targetPort: 50051
