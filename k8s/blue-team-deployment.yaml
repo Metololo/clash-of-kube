@@ -17,6 +17,7 @@ spec:
       containers:
       - name: soldier
         image: metooo/soldier:v1
+        imagePullPolicy: Always
         env:
         - name: SOLDIER_ID
           valueFrom:
@@ -34,7 +35,6 @@ spec:
           value: "40"
         - name: PORT
           value: "50051"
-        imagePullPolicy: Always
         ports:
          - containerPort: 50051
 ---

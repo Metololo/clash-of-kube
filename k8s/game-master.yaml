@@ -18,10 +18,10 @@ spec:
       containers:
       - name: game-master
         image: metooo/game-master:latest
+        imagePullPolicy: Always
         env:
         - name: REDIS_ADDR
           value: "redis-service:6379"
-        imagePullPolicy: Always
         volumeMounts:
         - name: manifest-storage
           mountPath: /app/manifests
@@ -66,7 +66,7 @@ kind: Service
 metadata:
   name: game-master-service
 spec:
-  type: LoadBalancer
+  type: ClusterIP
   selector:
     app: game-master
   ports:
