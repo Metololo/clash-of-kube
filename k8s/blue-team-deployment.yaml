@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: soldier
-        image: metooo/soldier:v1
+        image: metooo/soldier:latest
         imagePullPolicy: Always
         env:
         - name: SOLDIER_ID

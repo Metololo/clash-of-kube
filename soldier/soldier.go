@@ -4,6 +4,8 @@ import (
 	"log"
 	"os"
 	"sync"
+
+	"github.com/redis/go-redis/v9"
 )
 
 type Soldier struct {
@@ -12,6 +14,7 @@ type Soldier struct {
 	AttackPower int
 	Team        string
 	mu          sync.Mutex
+	rdb         *redis.Client
 }
 
 func (s *Soldier) getEmoji() string {
@@ -21,18 +24,25 @@ func (s *Soldier) getEmoji() string {
 	return "🔵"
 }
 
-func (s *Soldier) TakeDamage(damage int) int {
+func (s *Soldier) TakeDamage(damage int, attackerID string, attackerTeam string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.Health -= damage
 
-	log.Printf("%s [%s] took %d damage, remaining health: %d",
-		s.getEmoji(),
-		s.ID,
-		damage,
-		s.Health,
-	)
+	displayHealth := s.Health
+	if displayHealth < 0 {
+		displayHealth = 0
+	}
+
+	publishSoldierEvent(s.rdb, WarriorAttack, map[string]interface{}{
+		"attacker":        attackerID,
+		"attackerTeam":    attackerTeam,
+		"target":          s.ID,
+		"targetTeam":      s.Team,
+		"damage":          damage,
+		"remainingHealth": displayHealth,
+	})
 
 	if s.Health <= 0 {
 		s.Die()
@@ -42,6 +52,12 @@ func (s *Soldier) TakeDamage(damage int) int {
 }
 
 func (s *Soldier) Die() {
-	log.Printf("%s [%s] 💀 I have fallen!", s.getEmoji(), s.ID)
+	publishSoldierEvent(s.rdb, WarriorDied, map[string]interface{}{
+		"podName": s.ID,
+		"team":    s.Team,
+		"status":  "dead",
+	})
+
+	log.Printf("%s [%s] 💀 Fallen!", s.getEmoji(), s.ID)
 	os.Exit(1)
 }

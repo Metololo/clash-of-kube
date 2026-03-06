@@ -4,8 +4,9 @@ import { BattleController } from './battle.controller';
 import { BattleService } from './battle.service';
 import { RedisModule } from '../redis/redis.module';
 import { GameMasterClient } from './game-master-client/game-master-client.service';
+import { EventsModule } from 'src/events/events.module';
 @Module({
-  imports: [HttpModule, RedisModule],
+  imports: [EventsModule, HttpModule, RedisModule],
   providers: [GameMasterClient, BattleService],
   controllers: [BattleController],
 })

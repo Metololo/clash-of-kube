@@ -5,6 +5,7 @@
 REGISTRY ?= metooo
 TAG ?= latest
 K8S_DIR = k8s
+PROJECTS := game-master soldier gateway
 
 # If "project" is provided (e.g., make build project=gateway), use it. 
 # Otherwise, default to all three.
@@ -20,22 +21,21 @@ help:
 	@echo "  make clean                 - Delete resources created from setup-k8s"
 	@echo "  make all                   - Build, Push, and Deploy the full cluster"
 
-# =========================
-# Build & Push Logic
-# =========================
+BUILD_TARGETS := $(addprefix build-, $(PROJECTS))
+PUSH_TARGETS  := $(addprefix push-, $(PROJECTS))
 
-# The $(project) variable handles either a single string or the full list
-build:
-	@echo "🚀 Building: $(project)"
-	@$(foreach p,$(project), \
-		docker build -t $(REGISTRY)/$(p):$(TAG) ./$(p); \
-	)
+build: $(BUILD_TARGETS)
 
-push:
-	@echo "📤 Pushing: $(project)"
-	@$(foreach p,$(project), \
-		docker push $(REGISTRY)/$(p):$(TAG); \
-	)
+push: $(PUSH_TARGETS)
+
+$(BUILD_TARGETS): build-%:
+	@echo "🚀 Building: $*"
+	docker build -t $(REGISTRY)/$*:$(TAG) ./$*
+
+# Template for push targets
+$(PUSH_TARGETS): push-%:
+	@echo "📤 Pushing: $*"
+	docker push $(REGISTRY)/$*:$(TAG)
 
 # =========================
 # Kubernetes Operations

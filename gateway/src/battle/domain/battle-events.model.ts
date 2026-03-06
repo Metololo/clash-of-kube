@@ -1,20 +1,25 @@
 export enum BattleEventType {
   GAME_STARTED = 'GAME_STARTED',
   GAME_OVER = 'GAME_OVER',
+  POD_ADDED = 'POD_ADDED',
   WARRIOR_READY = 'WARRIOR_READY',
   WARRIOR_DIED = 'WARRIOR_DIED',
-  POD_ADDED = 'POD_ADDED',
-}
-
-export interface BaseBattleEvent {
-  type: string;
-  timestamp: number;
+  WARRIOR_ATTACK = 'WARRIOR_ATTACK',
 }
 
 export interface WarriorPayload {
   podName: string;
   team: string;
   status: string;
+}
+
+export interface WarriorAttackPayload {
+  attacker: string;
+  attackerTeam: string;
+  target: string;
+  targetTeam: string;
+  damage: number;
+  remainingHealth: number;
 }
 
 export interface GameOverPayload {
@@ -41,6 +46,11 @@ export type BattleEvent =
       timestamp: number;
     }
   | {
+      type: BattleEventType.POD_ADDED;
+      payload: WarriorPayload;
+      timestamp: number;
+    }
+  | {
       type: BattleEventType.WARRIOR_READY;
       payload: WarriorPayload;
       timestamp: number;
@@ -51,7 +61,7 @@ export type BattleEvent =
       timestamp: number;
     }
   | {
-      type: BattleEventType.POD_ADDED;
-      payload: WarriorPayload;
+      type: BattleEventType.WARRIOR_ATTACK;
+      payload: WarriorAttackPayload;
       timestamp: number;
     };

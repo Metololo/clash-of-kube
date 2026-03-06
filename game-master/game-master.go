@@ -232,7 +232,7 @@ func (gm *GameMaster) cleanupBattlefield(winner string) {
 
 	event := fmt.Sprintf(`{"type":"GAME_OVER","winner":"%s"}`, winner)
 
-	_ = gm.gameState.PublishEvent("ui-events", event)
+	_ = gm.gameState.PublishEvent("battle:events", event)
 }
 
 func (gm *GameMaster) deleteDeployment(name string) {

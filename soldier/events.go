@@ -1,16 +1,19 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 type EventType string
 
 const (
-	PodAdded    EventType = "POD_ADDED"
-	GameStarted EventType = "GAME_STARTED"
-	GameOver    EventType = "GAME_OVER"
+	WarriorReady  EventType = "WARRIOR_READY"
+	WarriorDied   EventType = "WARRIOR_DIED"
+	WarriorAttack EventType = "WARRIOR_ATTACK"
 )
 
 type BattleEvent struct {
@@ -19,7 +22,7 @@ type BattleEvent struct {
 	Timestamp int64                  `json:"timestamp"`
 }
 
-func publishBattleEvent(gs GameState, t EventType, payload map[string]interface{}) {
+func publishSoldierEvent(rdb *redis.Client, t EventType, payload map[string]interface{}) {
 	evt := BattleEvent{
 		Type:      string(t),
 		Payload:   payload,
@@ -31,5 +34,5 @@ func publishBattleEvent(gs GameState, t EventType, payload map[string]interface{
 		return
 	}
 
-	_ = gs.PublishEvent("battle:events", string(data))
+	_ = rdb.Publish(context.Background(), "battle:events", string(data)).Err()
 }

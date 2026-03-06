@@ -3,16 +3,28 @@ import { RedisService } from '../redis/redis.service';
 import { BattleConfig } from './domain/battle-config.model';
 import { BattleResponse } from './battle.controller';
 import { GameMasterClient } from './game-master-client/game-master-client.service';
-import { BattleEvent, BattleEventType } from './domain/battle-events.model';
+import {
+  BattleEvent,
+  BattleEventType,
+  GameOverPayload,
+  GameStartedPayload,
+  WarriorAttackPayload,
+  WarriorPayload,
+} from './domain/battle-events.model';
+import { EventsGateway } from 'src/events/events/events.gateway';
 
 @Injectable()
 export class BattleService implements OnModuleInit {
   private readonly logger = new Logger(BattleService.name);
+  private isBattleOver = false;
 
   constructor(
     private readonly redisService: RedisService,
     private readonly gmClient: GameMasterClient,
-  ) {}
+    private readonly eventsGateway: EventsGateway,
+  ) {
+    this.isBattleOver = false;
+  }
 
   async onModuleInit() {
     await this.listenToBattleEvents();
@@ -22,6 +34,7 @@ export class BattleService implements OnModuleInit {
     this.logger.log(
       `Initializing battle "${config.name}" with ${config.redTeamSize + config.blueTeamSize} total pods.`,
     );
+    this.isBattleOver = false;
 
     await this.gmClient.createBattlefield(config);
     return { status: 'created' };
@@ -54,40 +67,75 @@ export class BattleService implements OnModuleInit {
   }
 
   private handleEvent(rawEvent: unknown) {
+    if (this.isBattleOver) {
+      return;
+    }
     if (!rawEvent || typeof rawEvent !== 'object' || !('type' in rawEvent)) {
       return;
     }
 
     const event = rawEvent as BattleEvent;
-    const ts = new Date(event.timestamp).toISOString();
+    this.eventsGateway.broadcastBattleEvent(event);
 
+    this.logEvent(event);
+  }
+
+  private logEvent(event: BattleEvent) {
     switch (event.type) {
-      case BattleEventType.GAME_STARTED: {
-        this.logger.debug(`[${ts}] ${event.type}: ⚔️ ${event.payload.message}`);
+      case BattleEventType.GAME_STARTED:
+        this.handleGameStarted(event.payload, event.timestamp);
         break;
-      }
 
-      case BattleEventType.GAME_OVER: {
-        const { winner, score } = event.payload;
-        this.logger.debug(
-          `[${ts}] 🏆 WINNER: ${winner} (Red: ${score.red} | Blue: ${score.blue})`,
-        );
+      case BattleEventType.GAME_OVER:
+        this.isBattleOver = true;
+        this.handleGameOver(event.payload, event.timestamp);
         break;
-      }
+
+      case BattleEventType.WARRIOR_ATTACK:
+        this.handleWarriorAttack(event.payload, event.timestamp);
+        break;
 
       case BattleEventType.WARRIOR_DIED:
       case BattleEventType.WARRIOR_READY:
-      case BattleEventType.POD_ADDED: {
-        const { podName, team, status } = event.payload;
-        this.logger.debug(
-          `[${ts}] ${event.type}: ${podName} [${team}] -> ${status}`,
-        );
+      case BattleEventType.POD_ADDED:
+        this.handleWarriorStatus(event.type, event.payload, event.timestamp);
         break;
-      }
 
       default: {
         this.logger.warn(`Unhandled event type`);
       }
     }
+  }
+
+  private handleGameStarted(payload: GameStartedPayload, ts: number) {
+    const time = new Date(ts).toISOString();
+    this.logger.log(`[${time}] ⚔️ BATTLE START: ${payload.message}`);
+  }
+
+  private handleGameOver(payload: GameOverPayload, ts: number) {
+    const time = new Date(ts).toISOString();
+    const { winner, score } = payload;
+    this.logger.log(
+      `[${time}] 🏆 WINNER: ${winner} (Red: ${score.red} | Blue: ${score.blue})`,
+    );
+  }
+
+  private handleWarriorStatus(
+    type: BattleEventType,
+    payload: WarriorPayload,
+    ts: number,
+  ) {
+    const time = new Date(ts).toISOString();
+    this.logger.log(
+      `[${time}] ${type}: ${payload.podName} [${payload.team}] -> ${payload.status}`,
+    );
+  }
+
+  private handleWarriorAttack(payload: WarriorAttackPayload, ts: number) {
+    const time = new Date(ts).toISOString();
+    const { attacker, target, damage, remainingHealth } = payload;
+    this.logger.log(
+      `[${time}] ATTACK: ${attacker} 👊 ${target} | -${damage} HP (Remaining: ${remainingHealth})`,
+    );
   }
 }
