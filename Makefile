@@ -3,47 +3,57 @@
 # =========================
 
 REGISTRY ?= metooo
-TAG ?= v1.1
-
-GAME_MASTER_IMAGE = $(REGISTRY)/game-master:$(TAG)
-SOLDIER_IMAGE     = $(REGISTRY)/soldier:$(TAG)
-
+TAG ?= latest
 K8S_DIR = k8s
 
-.PHONY: help build-game-master build-soldier push-game-master push-soldier \
-        deploy-teams deploy-game-master build push deploy all clean prepare
+# If "project" is provided (e.g., make build project=gateway), use it. 
+# Otherwise, default to all three.
+project ?= game-master gateway soldier
 
-# ... (Help section) ...
+.PHONY: help build push setup-k8s clean all
+
+help:
+	@echo "Usage:"
+	@echo "  make build [project=name]  - Build one or all images"
+	@echo "  make push [project=name]   - Push one or all images"
+	@echo "  make setup-k8s             - Deploy the full cluster"
 
 # =========================
-# Management Commands
+# Build & Push Logic
 # =========================
 
-# Prepare the Game Master environment using Kustomize (Redis, ConfigMaps, RBAC, etc.)
-prepare:
-	@echo "🛠️  Preparing Game Master environment..."
+# The $(project) variable handles either a single string or the full list
+build:
+	@echo "🚀 Building: $(project)"
+	@$(foreach p,$(project), \
+		docker build -t $(REGISTRY)/$(p):$(TAG) ./$(p); \
+	)
+
+push:
+	@echo "📤 Pushing: $(project)"
+	@$(foreach p,$(project), \
+		docker push $(REGISTRY)/$(p):$(TAG); \
+	)
+
+# =========================
+# Kubernetes Operations
+# =========================
+
+setup-k8s:
+	@echo "🛠️  Applying Kustomize (Redis, Game-Master, RBAC)..."
 	kubectl apply -k $(K8S_DIR)
+	
+	@echo "🏗️  Deploying NestJS Gateway..."
+	kubectl apply -f gateway/gateway-k8s.yaml
+	
+	@echo "⏳ Waiting for Gateway to be ready..."
+	kubectl wait --for=condition=available deployment/gateway --timeout=60s
+	
+	@echo "🌍 Opening Gateway service..."
+	minikube service gateway-service
 
-# Delete all deployments created by the game to start fresh
 clean:
-	@echo "🧹 Cleaning up deployments..."
-	kubectl delete deployments red-soldiers blue-soldiers game-master redis || true
-	kubectl delete service red-team blue-team game-master-service redis-service || true
-	@echo "✨ Environment cleared."
-
-# =========================
-# Build & Push (Existing)
-# =========================
-# ... (Keep your existing build/push logic) ...
-
-# =========================
-# Deploy
-# =========================
-
-# Updated deploy to use prepare logic
-deploy: prepare
-
-# =========================
-# All-in-one
-# =========================
-all: build push prepare
+	@echo "🧹 Cleaning up..."
+	kubectl delete -k $(K8S_DIR) --ignore-not-found
+	kubectl delete -f gateway/gateway-k8s.yaml --ignore-not-found
+	kubectl delete deployments -l app=clash-of-kube --ignore-not-found
