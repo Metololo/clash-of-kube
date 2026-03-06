@@ -3,6 +3,7 @@ import { RedisService } from '../redis/redis.service';
 import { BattleConfig } from './domain/battle-config.model';
 import { BattleResponse } from './battle.controller';
 import { GameMasterClient } from './game-master-client/game-master-client.service';
+import { BattleEvent, BattleEventType } from './domain/battle-events.model';
 
 @Injectable()
 export class BattleService implements OnModuleInit {
@@ -52,13 +53,41 @@ export class BattleService implements OnModuleInit {
     });
   }
 
-  private handleEvent(event: Record<string, unknown>) {
-    const type =
-      typeof event.type === 'string' ? event.type.toUpperCase() : 'UNKNOWN';
-    const podId = typeof event.podId === 'string' ? event.podId : 'unknown-pod';
-    const action =
-      typeof event.action === 'string' ? event.action : 'no-action';
+  private handleEvent(rawEvent: unknown) {
+    if (!rawEvent || typeof rawEvent !== 'object' || !('type' in rawEvent)) {
+      return;
+    }
 
-    this.logger.debug(`[BATTLE EVENT] ${type}: Pod ${podId} -> ${action}`);
+    const event = rawEvent as BattleEvent;
+    const ts = new Date(event.timestamp).toISOString();
+
+    switch (event.type) {
+      case BattleEventType.GAME_STARTED: {
+        this.logger.debug(`[${ts}] ${event.type}: ⚔️ ${event.payload.message}`);
+        break;
+      }
+
+      case BattleEventType.GAME_OVER: {
+        const { winner, score } = event.payload;
+        this.logger.debug(
+          `[${ts}] 🏆 WINNER: ${winner} (Red: ${score.red} | Blue: ${score.blue})`,
+        );
+        break;
+      }
+
+      case BattleEventType.WARRIOR_DIED:
+      case BattleEventType.WARRIOR_READY:
+      case BattleEventType.POD_ADDED: {
+        const { podName, team, status } = event.payload;
+        this.logger.debug(
+          `[${ts}] ${event.type}: ${podName} [${team}] -> ${status}`,
+        );
+        break;
+      }
+
+      default: {
+        this.logger.warn(`Unhandled event type`);
+      }
+    }
   }
 }

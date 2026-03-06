@@ -17,6 +17,8 @@ help:
 	@echo "  make build [project=name]  - Build one or all images"
 	@echo "  make push [project=name]   - Push one or all images"
 	@echo "  make setup-k8s             - Deploy the full cluster"
+	@echo "  make clean                 - Delete resources created from setup-k8s"
+	@echo "  make all                   - Build, Push, and Deploy the full cluster"
 
 # =========================
 # Build & Push Logic
@@ -44,7 +46,7 @@ setup-k8s:
 	kubectl apply -k $(K8S_DIR)
 	
 	@echo "🏗️  Deploying NestJS Gateway..."
-	kubectl apply -f gateway/gateway-k8s.yaml
+	kubectl apply -f $(K8S_DIR)/gateway.yaml
 	
 	@echo "⏳ Waiting for Gateway to be ready..."
 	kubectl wait --for=condition=available deployment/gateway --timeout=60s
@@ -54,6 +56,11 @@ setup-k8s:
 
 clean:
 	@echo "🧹 Cleaning up..."
+	# Remove Kustomize resources
 	kubectl delete -k $(K8S_DIR) --ignore-not-found
-	kubectl delete -f gateway/gateway-k8s.yaml --ignore-not-found
-	kubectl delete deployments -l app=clash-of-kube --ignore-not-found
+	# Remove Gateway manifest
+	kubectl delete -f $(K8S_DIR)/gateway.yaml --ignore-not-found
+	# Remove Team Deployments and Services
+	kubectl delete deployments -l app=soldier --ignore-not-found
+	kubectl delete service blue-team-service red-team-service gateway-service --ignore-not-found
+	@echo "✨ Environment cleared."

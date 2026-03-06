@@ -22,10 +22,7 @@ export class GameMasterClient {
   async createBattlefield(config: Record<string, any>): Promise<any> {
     try {
       const response: AxiosResponse = await firstValueFrom(
-        this.httpService.post(
-          `${this.GAME_MASTER_URL}/create-battlefield`,
-          config,
-        ),
+        this.httpService.post(`${this.GAME_MASTER_URL}/setup`, config),
       );
       return response.data;
     } catch (err) {
@@ -37,7 +34,7 @@ export class GameMasterClient {
   async startGame(): Promise<Record<string, any>> {
     try {
       const response: AxiosResponse = await firstValueFrom(
-        this.httpService.post(`${this.GAME_MASTER_URL}/start-game`, {}),
+        this.httpService.post(`${this.GAME_MASTER_URL}/start`, {}),
       );
       return response.data as Record<string, any>;
     } catch (err) {

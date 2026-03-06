@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,6 +13,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
+
+type CreateBattleDto struct {
+	BattleName   string `json:"battleName"`
+	RedReplicas  int    `json:"redReplicas"`
+	BlueReplicas int    `json:"blueReplicas"`
+}
 
 const (
 	StatusWaiting = "WAITING"
@@ -44,17 +51,34 @@ func NewGameMaster(clientset *kubernetes.Clientset, gameState GameState, namespa
 }
 
 func (gm *GameMaster) CreateBattlefieldHandler(w http.ResponseWriter, r *http.Request) {
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var dto CreateBattleDto
+	if err := json.NewDecoder(r.Body).Decode(&dto); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
 	log.Println("🏗️  Provisioning battlefield")
 
 	gm.resetGame()
 
 	gm.applyBattlefieldManifests()
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	w.Write([]byte("Battlefield provisioning started"))
+	json.NewEncoder(w).Encode(map[string]string{"status": "provisioning"})
 }
 
 func (gm *GameMaster) StartGameHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	log.Println("🚀 Start game requested")
 
 	if gm.isGameAlreadyRunning() {
@@ -72,8 +96,9 @@ func (gm *GameMaster) StartGameHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Battle started"))
+	json.NewEncoder(w).Encode(map[string]string{"status": "started"})
 }
 
 func (gm *GameMaster) startGame() error {
@@ -84,6 +109,10 @@ func (gm *GameMaster) startGame() error {
 		log.Printf("❌ Failed to publish start event: %v", err)
 		return err
 	}
+
+	publishBattleEvent(gm.gameState, "GAME_STARTED", map[string]interface{}{
+		"message": "The battle has begun!",
+	})
 
 	log.Println("✅ Game started")
 	return nil
@@ -167,8 +196,15 @@ func (gm *GameMaster) shouldGameContinue(red, blue int) bool {
 
 func (gm *GameMaster) finishGame(red, blue int) {
 	gm.gameState.SetStatus(StatusOver)
-
 	winner := determineWinner(red, blue)
+
+	publishBattleEvent(gm.gameState, "GAME_OVER", map[string]interface{}{
+		"winner": winner,
+		"score": map[string]int{
+			"red":  red,
+			"blue": blue,
+		},
+	})
 
 	log.Println("--------------------------------------------------")
 	log.Printf("🏆 GAME OVER! Winner: %s", winner)

@@ -25,16 +25,23 @@ func main() {
 
 	gm := NewGameMaster(clientset, gameState, namespace)
 
-	podInformer := createInformer(clientset, "app=soldier")
-	setupEventHandlers(podInformer, gameState, gm)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/setup", gm.CreateBattlefieldHandler)
+	mux.HandleFunc("/start", gm.StartGameHandler)
 
 	go func() {
-		http.HandleFunc("/create-battlefield", gm.CreateBattlefieldHandler)
-		http.HandleFunc("/start-game", gm.StartGameHandler)
-		log.Printf("v14! 🚀 Game Master listening on :8080 (Redis: %s)", redisAddr)
-		log.Fatal(http.ListenAndServe(":8080", nil))
+		log.Printf("🚀 Game Master v15! listening on :8080")
+		server := &http.Server{
+			Addr:    ":8080",
+			Handler: mux,
+		}
+		if err := server.ListenAndServe(); err != nil {
+			log.Fatal(err)
+		}
 	}()
 
+	podInformer := createInformer(clientset, "app=soldier")
+	setupEventHandlers(podInformer, gameState, gm)
 	startInformer(podInformer)
 }
 
