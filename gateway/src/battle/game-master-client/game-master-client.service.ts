@@ -3,6 +3,8 @@ import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 import { AxiosResponse, AxiosError } from 'axios';
+import { BattleConfig } from '../domain/battle-config.model';
+import { GameMasterProvisionResponse } from '../interfaces/game-master-response.interface';
 
 @Injectable()
 export class GameMasterClient {
@@ -19,11 +21,19 @@ export class GameMasterClient {
       'http://game-master-service',
     );
   }
-  async createBattlefield(config: Record<string, any>): Promise<any> {
+  async createBattlefield(
+    config: BattleConfig,
+  ): Promise<GameMasterProvisionResponse> {
     try {
-      const response: AxiosResponse = await firstValueFrom(
-        this.httpService.post(`${this.GAME_MASTER_URL}/setup`, config),
+      // 1. Tell Axios to expect GameMasterProvisionResponse
+      const response = await firstValueFrom(
+        this.httpService.post<GameMasterProvisionResponse>(
+          `${this.GAME_MASTER_URL}/setup`,
+          config,
+        ),
       );
+
+      // 2. No more 'any'! response.data is now typed correctly.
       return response.data;
     } catch (err) {
       this.handleError(err, 'createBattlefield');

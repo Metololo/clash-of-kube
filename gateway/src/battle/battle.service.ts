@@ -31,13 +31,14 @@ export class BattleService implements OnModuleInit {
   }
 
   async initializeNewBattle(config: BattleConfig): Promise<BattleResponse> {
-    this.logger.log(
-      `Initializing battle "${config.name}" with ${config.redTeamSize + config.blueTeamSize} total pods.`,
-    );
-    this.isBattleOver = false;
+    this.logger.log(`Initializing battle: ${config.name}`);
 
-    await this.gmClient.createBattlefield(config);
-    return { status: 'created' };
+    const result = await this.gmClient.createBattlefield(config);
+
+    return {
+      status: result.status,
+      data: result,
+    };
   }
 
   async start(): Promise<BattleResponse> {

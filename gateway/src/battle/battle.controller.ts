@@ -3,6 +3,7 @@ import { Controller, Post, Body } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { BattleService } from './battle.service';
 import { CreateBattleDto } from './dto/create-battle.dto';
+import { BattleConfig } from './domain/battle-config.model';
 
 export interface BattleResponse {
   status: string;
@@ -30,7 +31,7 @@ export class BattleController {
     description: 'Game-Master service is unreachable.',
   })
   async setup(@Body() dto: CreateBattleDto): Promise<BattleResponse> {
-    const domainConfig = CreateBattleDto.toDomain(dto);
+    const domainConfig = new BattleConfig(dto.battleName, dto.red, dto.blue);
     return this.battleService.initializeNewBattle(domainConfig);
   }
 

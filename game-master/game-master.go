@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,12 +13,18 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/kustomize/kyaml/yaml"
 )
 
+type TeamSettings struct {
+	Replicas int `json:"replicas"`
+	Health   int `json:"health"`
+	Attack   int `json:"attack"`
+}
+
 type CreateBattleDto struct {
-	BattleName   string `json:"battleName"`
-	RedReplicas  int    `json:"redReplicas"`
-	BlueReplicas int    `json:"blueReplicas"`
+	Red  TeamSettings `json:"red"`
+	Blue TeamSettings `json:"blue"`
 }
 
 const (
@@ -63,11 +70,12 @@ func (gm *GameMaster) CreateBattlefieldHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	log.Println("🏗️  Provisioning battlefield")
+	log.Printf("🏗️ Provisioning: Red(%d) vs Blue(%d) battlefield", dto.Red.Replicas, dto.Blue.Replicas)
 
 	gm.resetGame()
+	gm.cleanupBattlefield()
 
-	gm.applyBattlefieldManifests()
+	gm.applyBattlefieldManifests(dto)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
@@ -211,7 +219,10 @@ func (gm *GameMaster) finishGame(red, blue int) {
 	log.Printf("📊 Final Score -> Red: %d | Blue: %d", red, blue)
 	log.Println("--------------------------------------------------")
 
-	go gm.cleanupBattlefield(winner)
+	event := fmt.Sprintf(`{"type":"GAME_OVER","winner":"%s"}`, winner)
+	_ = gm.gameState.PublishEvent("battle:events", event)
+
+	go gm.cleanupBattlefield()
 }
 
 func determineWinner(red, blue int) string {
@@ -226,13 +237,9 @@ func determineWinner(red, blue int) string {
 	return "Draw"
 }
 
-func (gm *GameMaster) cleanupBattlefield(winner string) {
+func (gm *GameMaster) cleanupBattlefield() {
 	gm.deleteDeployment(DeploymentRed)
 	gm.deleteDeployment(DeploymentBlue)
-
-	event := fmt.Sprintf(`{"type":"GAME_OVER","winner":"%s"}`, winner)
-
-	_ = gm.gameState.PublishEvent("battle:events", event)
 }
 
 func (gm *GameMaster) deleteDeployment(name string) {
@@ -249,19 +256,51 @@ func (gm *GameMaster) deleteDeployment(name string) {
 	log.Printf("🗑️ Deployment %s deleted", name)
 }
 
-func (gm *GameMaster) applyBattlefieldManifests() {
-	applyManifest(ManifestRed)
-	applyManifest(ManifestBlue)
+func (gm *GameMaster) applyBattlefieldManifests(dto CreateBattleDto) {
+	gm.PatchAndApply(ManifestRed, dto.Red.Replicas, dto.Red.Health, dto.Red.Attack)
+
+	gm.PatchAndApply(ManifestBlue, dto.Blue.Replicas, dto.Blue.Health, dto.Blue.Attack)
 }
 
-func applyManifest(path string) {
-	cmd := exec.Command("kubectl", "apply", "-f", path)
-
-	out, err := cmd.CombinedOutput()
+func (gm *GameMaster) PatchAndApply(manifestPath string, replicas int, health int, attack int) {
+	node, err := yaml.ReadFile(manifestPath)
 	if err != nil {
-		log.Printf("❌ Apply failed (%s): %v\n%s", path, err, out)
+		log.Printf("❌ Failed to read YAML: %v", err)
 		return
 	}
 
-	log.Printf("✅ Applied %s", path)
+	err = node.PipeE(
+		yaml.Lookup("spec"),
+		yaml.SetField("replicas", yaml.NewScalarRNode(fmt.Sprintf("%d", replicas))),
+	)
+
+	updateEnvVar(node, "HEALTH", fmt.Sprintf("%d", health))
+	updateEnvVar(node, "ATTACK_POWER", fmt.Sprintf("%d", attack))
+
+	patchedYaml, _ := node.String()
+
+	applyManifest([]byte(patchedYaml))
+}
+
+func updateEnvVar(node *yaml.RNode, name string, value string) {
+	node.PipeE(
+		yaml.Lookup("spec", "template", "spec", "containers"),
+		yaml.GetElementByIndex(0),
+		yaml.Lookup("env"),
+		yaml.MatchElement("name", name),
+		yaml.SetField("value", yaml.NewScalarRNode(value)),
+	)
+}
+
+func applyManifest(yamlData []byte) {
+	cmd := exec.Command("kubectl", "apply", "-f", "-")
+	cmd.Stdin = bytes.NewReader(yamlData)
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("❌ Apply failed: %v\n%s", err, out)
+		return
+	}
+
+	log.Printf("✅ Applied patched manifest successfully")
 }

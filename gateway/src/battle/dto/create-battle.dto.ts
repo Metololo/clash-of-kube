@@ -1,31 +1,46 @@
-import { IsString, IsNumber, Min, Max } from 'class-validator';
+import {
+  IsString,
+  IsNumber,
+  Min,
+  Max,
+  IsObject,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
-import { BattleConfig } from '../domain/battle-config.model';
+
+class TeamSettingsDto {
+  @ApiProperty({ example: 300 })
+  @IsNumber()
+  @Min(1)
+  @Max(500)
+  replicas: number;
+
+  @ApiProperty({ example: 100 })
+  @IsNumber()
+  @Min(1)
+  health: number;
+
+  @ApiProperty({ example: 10 })
+  @IsNumber()
+  @Min(1)
+  attack: number;
+}
 
 export class CreateBattleDto {
-  @ApiProperty({
-    example: 'Battle of Thermopylae',
-    description: 'The unique name for this simulation',
-  })
+  @ApiProperty({ example: 'Battle of Thermopylae' })
   @IsString()
   battleName: string;
 
-  @ApiProperty({ example: 300, description: 'Number of pods for the Red Team' })
-  @IsNumber()
-  @Min(1)
-  @Max(500)
-  redReplicas: number;
+  @ApiProperty({ type: TeamSettingsDto })
+  @IsObject()
+  @ValidateNested()
+  @Type(() => TeamSettingsDto)
+  red: TeamSettingsDto;
 
-  @ApiProperty({
-    example: 300,
-    description: 'Number of pods for the Blue Team',
-  })
-  @IsNumber()
-  @Min(1)
-  @Max(500)
-  blueReplicas: number;
-
-  static toDomain(dto: CreateBattleDto): BattleConfig {
-    return new BattleConfig(dto.battleName, dto.redReplicas, dto.blueReplicas);
-  }
+  @ApiProperty({ type: TeamSettingsDto })
+  @IsObject()
+  @ValidateNested()
+  @Type(() => TeamSettingsDto)
+  blue: TeamSettingsDto;
 }
