@@ -28,6 +28,8 @@ async function bootstrap() {
     customSiteTitle: 'Clash-of-Kube API Docs',
   });
 
+  app.enableCors();
+
   await app.listen(3000);
 }
 bootstrap();

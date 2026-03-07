@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: blue-soldiers
 spec:
-  replicas: 2
+  replicas: 4
   selector:
     matchLabels:
       app: soldier
@@ -17,7 +17,7 @@ spec:
       containers:
       - name: soldier
         image: metooo/soldier:latest
-        imagePullPolicy: Always
+        imagePullPolicy: IfNotPresent 
         env:
         - name: SOLDIER_ID
           valueFrom:
@@ -37,6 +37,13 @@ spec:
           value: "50051"
         ports:
          - containerPort: 50051
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 96Mi
 ---
 apiVersion: v1
 kind: Service

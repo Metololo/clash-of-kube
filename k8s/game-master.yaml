@@ -18,7 +18,7 @@ spec:
       containers:
       - name: game-master
         image: metooo/game-master:latest
-        imagePullPolicy: Always
+        imagePullPolicy: IfNotPresent
         env:
         - name: REDIS_ADDR
           value: "redis-service:6379"

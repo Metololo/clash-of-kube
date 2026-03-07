@@ -61,6 +61,7 @@ clean:
 	# Remove Gateway manifest
 	kubectl delete -f $(K8S_DIR)/gateway.yaml --ignore-not-found
 	# Remove Team Deployments and Services
-	kubectl delete deployments -l app=soldier --ignore-not-found
+	kubectl delete deployment/blue-soldiers --ignore-not-found
+	kubectl delete deployment/red-soldiers --ignore-not-found
 	kubectl delete service blue-team-service red-team-service gateway-service --ignore-not-found
 	@echo "✨ Environment cleared."
