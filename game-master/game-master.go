@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/kustomize/kyaml/kio"
 	"sigs.k8s.io/kustomize/kyaml/yaml"
 )
 
@@ -263,23 +265,46 @@ func (gm *GameMaster) applyBattlefieldManifests(dto CreateBattleDto) {
 }
 
 func (gm *GameMaster) PatchAndApply(manifestPath string, replicas int, health int, attack int) {
-	node, err := yaml.ReadFile(manifestPath)
+	data, err := os.ReadFile(manifestPath)
 	if err != nil {
-		log.Printf("❌ Failed to read YAML: %v", err)
+		log.Printf("❌ Failed to read file: %v", err)
 		return
 	}
 
-	err = node.PipeE(
-		yaml.Lookup("spec"),
-		yaml.SetField("replicas", yaml.NewScalarRNode(fmt.Sprintf("%d", replicas))),
-	)
+	reader := &kio.ByteReader{
+		Reader: bytes.NewReader(data),
+	}
 
-	updateEnvVar(node, "HEALTH", fmt.Sprintf("%d", health))
-	updateEnvVar(node, "ATTACK_POWER", fmt.Sprintf("%d", attack))
+	nodes, err := reader.Read()
+	if err != nil {
+		log.Printf("❌ Failed to parse YAML documents: %v", err)
+		return
+	}
 
-	patchedYaml, _ := node.String()
+	for _, node := range nodes {
+		meta, _ := node.GetMeta()
+		if meta.Kind == "Deployment" {
+			node.PipeE(
+				yaml.Lookup("spec"),
+				yaml.SetField("replicas", yaml.NewScalarRNode(fmt.Sprintf("%d", replicas))),
+			)
 
-	applyManifest([]byte(patchedYaml))
+			updateEnvVar(node, "HEALTH", fmt.Sprintf("%d", health))
+			updateEnvVar(node, "ATTACK_POWER", fmt.Sprintf("%d", attack))
+		}
+	}
+
+	var outBuf bytes.Buffer
+	writer := kio.ByteWriter{
+		Writer: &outBuf,
+	}
+
+	if err := writer.Write(nodes); err != nil {
+		log.Printf("❌ Failed to encode YAML: %v", err)
+		return
+	}
+
+	applyManifest(outBuf.Bytes())
 }
 
 func updateEnvVar(node *yaml.RNode, name string, value string) {
